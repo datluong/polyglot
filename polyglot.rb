@@ -1,8 +1,9 @@
 require 'net/http'
 require 'zip/zip' #require rubyzip gem
 require 'zlib'
+require 'benchmark'
 
-$VERSION = '0.1.1'
+$VERSION = '0.1.2'
 
 # required external data:
 # radicals.txt   # defines description for each radical.
@@ -11,8 +12,55 @@ $VERSION = '0.1.1'
 #
 
 module Polyglot
+  @@radicals = nil
 
-  
+  module Composition
+    @@char_map = nil
+
+    def self.get_char_map
+      if @@char_map.nil?
+        m = ::Benchmark.measure { @@char_map = self.expand self.build_hash if @@char_map.nil? }
+        puts "Build char_map: #{m.total} secs"
+      end
+      @@char_map
+    end
+
+    def self.parse_cjk_line(line)
+      comps = line.gsub(")", "").split ":"
+      comps2 = comps.last.split "("
+      return nil unless comps.size == 2 and comps2.size == 2
+      h = { :char => comps.first, :configuration => comps2.first, :composition => comps2.last.split(",") }
+      h[:memorized] = [ h[:composition].first ]
+      h
+    end
+
+    def self.build_hash
+      h = {}
+      File.readlines("cjk-decomp-0.4.0.txt").each do |x|
+        item = self.parse_cjk_line x.chomp
+        h[item[:char]] = item unless item.nil?
+      end
+      h
+    end
+
+    #CharacterMap = Composition.build_hash
+    def self.expand(char_map)
+      char_map.keys.each_with_index do |key, _index|
+        #next if _index > 5000
+        entry = char_map[key]
+        while (target_char = entry[:composition].find { |x| entry[:memorized].include?(x) == false }) != nil
+          entry[:memorized] << target_char
+          if char_map.key?(target_char)
+            sub_composition = char_map[target_char][:composition]
+            sub_composition.each { |sub_char| entry[:composition] << sub_char unless entry[:composition].include? sub_char }
+          end
+        end
+      end
+      char_map
+    end
+
+  end # end of Module Composition
+
   # provides interface for reading stardict dictionaries
   class Stardict
 
@@ -119,7 +167,7 @@ module Polyglot
   end
 
   # return hash #radical_number => radical_data
-  def load_radicals
+  def self.load_radicals
     lines = File.readlines 'radicals.txt'
     list  = lines.map { |l| l.split(",").map{ |x| x.strip } }
     hash  = Hash.new
@@ -146,8 +194,13 @@ module Polyglot
         dup_hash[rname] = 1
       end
     end
-    
+
     rtable
+  end
+
+  def self.get_radicals
+    @@radicals = self.load_radicals if @@radicals.nil?
+    @@radicals
   end
 
   # return hash #radical_number => array of strokes
@@ -172,7 +225,7 @@ module Polyglot
 
   def download_charlist radical_index
     puts "Downloading Characters for radical #{radical_index}"
-    stroke_list  = load_strokes 
+    stroke_list  = load_strokes
     stroke_table = stroke_list[radical_index]
 
     res_table = stroke_table.map do |stroke_count|
@@ -203,7 +256,7 @@ module Polyglot
     #pi = radical_name.gsub(/[a-z]/,'').to_i
     #radical_name = pi if pi > 0
 
-    radicals     = load_radicals 
+    radicals     = Polyglot::load_radicals
     stroke_map   = load_strokes
 
     matches = []
@@ -231,7 +284,7 @@ module Polyglot
     stroke_table  = stroke_map[matches.first[:radical_index]]
     return puts "Available Strokes: #{stroke_table}" if stroke_count == 0
     return puts "No characters with #{stroke_count} strokes" unless stroke_table.include? stroke_count
-    
+
     puts "Looking up.."
     #load input string from server
     #uri = URI("http://www.hanviet.org/ajax.php?radical=#{radical_index}&strokes=#{stroke_count}")
@@ -302,6 +355,15 @@ module Polyglot
 
   def p char_code
     pinyin char_code
+  end
+
+  # Accept varargs
+  def composition radical, *args
+    stroke_count = 0 # All strokes
+    if args.size > 0 and args.first.is_a? Number
+      stroke_count = args.first
+      args.delete_at 0
+    end
   end
 
 end # end of Module
