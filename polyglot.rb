@@ -14,6 +14,8 @@ $VERSION = '0.1.2'
 
 module Polyglot
   @@radicals = nil
+  @@local_dict = nil
+  @@hanviet_dict = nil
 
   module Composition
     @@char_map = nil
@@ -166,21 +168,36 @@ module Polyglot
   DICT_XDICT_CE_GB_PREFIX = "dict/stardict-xdict-ce-gb-2.4.2/xdict-ce-gb"
   DICT_LAZYWORM_PREFIX = "dict/stardict-lazyworm-ce-2.4.2/lazyworm-ce"
 
-#  LOCAL_DICT = Stardict.new DICT_HANZIMASTER_PREFIX
-  LOCAL_DICT = Stardict.new DICT_CEDICT_PREFIX
+  #LOCAL_DICT = Stardict.new DICT_HANZIMASTER_PREFIX
+  #LOCAL_DICT = Stardict.new DICT_CEDICT_PREFIX
+  #HANVIET_DICT = Stardict.new DICT_HANVIET_PREFIX
 
-  def use_dict_cedict
-    #LOCAL_DICT = Stardict.new DICT_CEDICT_PREFIX 
+  def self.get_local_dict
+    if @@local_dict.nil?
+      @@local_dict = Stardict.new DICT_CEDICT_PREFIX
+    end
+    @@local_dict
+  end
+
+  def self.get_hanviet_dict
+    if @@hanviet_dict.nil?
+      @@hanviet_dict = Stardict.new DICT_HANVIET_PREFIX
+    end
+    @@hanviet_dict
+  end
+
+  def self.use_dict_cedict
+    @@local_dict = Stardict.new DICT_CEDICT_PREFIX 
     puts "Switched to CEDICT Dictionary"
   end
 
-  def use_dict_hanzimaster
-    #LOCAL_DICT = Stardict.new DICT_HANZIMASTER_PREFIX 
+  def self.use_dict_hanzimaster
+    @@local_dict = Stardict.new DICT_HANZIMASTER_PREFIX 
     puts "Switched to Hanzi Master Dictionary"
   end
 
-  def use_dict_hanviet
-    #LOCAL_DICT = Stardict.new DICT_HANVIET_PREFIX
+  def self.use_dict_hanviet
+    @@local_dict = Stardict.new DICT_HANVIET_PREFIX
     puts "Switched to Hanviet Dictionary"
   end
 
@@ -356,7 +373,7 @@ module Polyglot
 
     # look up trans from local dictionary
     list.each do |x|
-      trans = LOCAL_DICT.trans x[:unicode]
+      trans = Polyglot.get_local_dict.trans x[:unicode]
       trans = "<no definition>" if trans.nil?
       x[:trans] = trans
     end
@@ -410,10 +427,15 @@ module Polyglot
     ri = radical_info[:radical_index]
     r_charlist = []
     unknown_r_comps = []
-    args.each do |arg|
+
+    radical_args = args.select { |x| x.is_a?(Symbol) and x.to_s =~ /[\w]+/ }
+    char_args = args.select { |x| /[\w]+/.match(x.to_s).nil? }.map { |x| x.to_s }
+
+    radical_args.each do |arg|
       if arg.is_a? Symbol
         matches = Polyglot.list_radicals arg.to_s
         unknown_r_comps << arg if matches.size != 1
+        matches.each { |m| puts "#{m[:description]} #{m[:radical_name]}" } if matches.size > 1
         r_charlist << matches.first[:unicode] if matches.size == 1
       end
     end
@@ -425,6 +447,8 @@ module Polyglot
 
     charlist = Polyglot::parse_charlist Polyglot::load_charlist(ri, stroke_count)
 
+    r_charlist = r_charlist.concat(char_args).uniq
+
     puts "Find: radical #{radical_info[:unicode]}, composition: #{r_charlist.inspect}, source: #{charlist.size} characters"
 
     r = Polyglot::Composition::find(charlist.map{|x| x[:unicode] }, r_charlist)
@@ -432,17 +456,42 @@ module Polyglot
 
     # Pretty print
     r.each do |ch|
-      trans = LOCAL_DICT.trans ch
+      trans = Polyglot.get_local_dict.trans(ch)
+      trans = trans.force_encoding('UTF-8') unless trans.nil?
+
+      hv_trans = Polyglot.get_hanviet_dict.trans(ch)
+      if hv_trans != nil
+        trans = "" if trans.nil?
+        trans += " [hanviet] #{hv_trans.force_encoding('UTF-8')}"
+      end
+
       trans = "<no definition>" if trans.nil?
       puts "#{ch} : #{trans}"
     end
 
+    POLYGLOT_TMP[:RECENT] = r
   end
 
   def c(*args)
     composition(*args)
   end
 
+  def list_recents
+    if POLYGLOT_TMP[:RECENT].is_a? Array
+      POLYGLOT_TMP[:RECENT].each_with_index do |ch, _index|
+        puts "#{_index}: #{ch}"
+      end
+    end
+  end
+
+  def show_composition(c)
+    if c.is_a? Numeric
+      c = POLYGLOT_TMP[:RECENT][c]
+    end
+    x = Composition::get_char_map[c.to_s]
+    pp x
+  end
+
 end # end of Module
 
-include Polyglot 
+include Polyglot

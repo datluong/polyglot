@@ -66,7 +66,7 @@
 201,hoàng (201) 黃, hoang 
 141,hô (hay hổ) (141) 虍, ho 
 63,hộ (63) 戶, ho
-143,huyết (143) x血, huyet
+143,huyết (143) 血, huyet
 95,huyền (95) 玄, huyen
 116,huyệt (116) 穴, huyet
 186,hương (186) 香, huong
@@ -78,9 +78,9 @@
 94,khuyển (94) 犬, khuyen
 147,kiến (147) 見, kien
 167,kim (167) 金, kim
-58,kí (hay kệ) (58) í, ki
-16,kỉ (16) ỉ, ki
-49,kỉ (49) ỉ, ki
+58,kí (hay kệ) (58) í 彐, ki
+16,kỉ (16) ỉ 几, ki
+49,kỉ (49) ỉ 己, ki
 125,lão (125) 老, lao
 117,lập (117) 立, lap
 212,long (212) 龍, long
