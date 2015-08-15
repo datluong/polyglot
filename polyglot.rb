@@ -390,6 +390,9 @@ module Polyglot
   end
 
   # Accept varargs
+  # Example: composition :nhan1, :khau, :_si => look for all characters in :nhan1 radical, contains components: [:khau, :si]
+  #          composition :nhan1, 6, :khau => look for all character in :nhan1 radical, 6 strokes, contains components: [:khau]
+  #
   def composition radical, *args
     stroke_count = 0 # All strokes
     if args.size > 0 and args.first.is_a? Numeric
