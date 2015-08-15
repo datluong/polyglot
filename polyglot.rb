@@ -2,6 +2,7 @@ require 'net/http'
 require 'zip/zip' #require rubyzip gem
 require 'zlib'
 require 'benchmark'
+require 'pp'
 
 $VERSION = '0.1.2'
 
@@ -16,6 +17,23 @@ module Polyglot
 
   module Composition
     @@char_map = nil
+
+    # @param   source_list  array of unicode characters
+    # @param   composition  array
+    # @return  array of composition objects
+    #
+    def self.find(source_list, composition)
+      puts "Polyglot::Composition::find #{composition.inspect}, source_size: #{source_list.size}"
+      map = self.get_char_map
+      source_list.select do |ch|
+        r = false
+        if map.key? ch
+          entry_composition = map[ch][:composition]
+          r = composition.all? { |c| entry_composition.include? c }
+        end
+        r
+      end
+    end
 
     def self.get_char_map
       if @@char_map.nil?
@@ -175,7 +193,8 @@ module Polyglot
 
     rtable = list.map { |l|  { :radical_index => l.first.to_i,
                       :radical_name  => l[2],
-                      :description   => l[1]
+                      :description   => l[1],
+                      :unicode => l[1].split(" ").last
                     } 
              }
 
@@ -204,7 +223,7 @@ module Polyglot
   end
 
   # return hash #radical_number => array of strokes
-  def load_strokes
+  def self.load_strokes
     lines = File.readlines 'strokes.txt'
     list  = lines.map { |l| l.strip.split(":") }
     hash  = Hash.new
@@ -225,7 +244,7 @@ module Polyglot
 
   def download_charlist radical_index
     puts "Downloading Characters for radical #{radical_index}"
-    stroke_list  = load_strokes
+    stroke_list  = Polyglot::load_strokes
     stroke_table = stroke_list[radical_index]
 
     res_table = stroke_table.map do |stroke_count|
@@ -247,7 +266,17 @@ module Polyglot
     look a,b
   end
 
-  # radical_name: 
+  # Return a list of radical objects by name
+  #
+  def self.list_radicals radical_name
+    radicals = self.get_radicals
+    radical_name = radical_name.sub("_","^") + "$" if radical_name.index("_") == 0
+    regex    = Regexp.new "^#{radical_name}"
+    matches  = radicals.select { |r| r[:radical_name] =~ regex }
+    matches
+  end
+
+  # radical_name:
   #   - a number: look by radical index
   #   - a string: look by regex
   #   - prefix _: exact match
@@ -257,14 +286,12 @@ module Polyglot
     #radical_name = pi if pi > 0
 
     radicals     = Polyglot::load_radicals
-    stroke_map   = load_strokes
+    stroke_map   = Polyglot::load_strokes
 
     matches = []
 
     if radical_name.is_a? String
-      radical_name = radical_name.sub("_","^") + "$" if radical_name.index("_") == 0
-      regex    = Regexp.new "^#{radical_name}"
-      matches  = radicals.select { |r| r[:radical_name] =~ regex }
+      matches = Polyglot.list_radicals radical_name
       if matches.size == 0
         puts "No radical #{radical_name}"
         return
@@ -274,7 +301,6 @@ module Polyglot
         matches.each { |m| puts "#{m[:description]} #{m[:radical_name]}" }
         return
       end
-
     end
 
     matches = radicals.select { |r| r[:radical_index] == radical_name } if radical_name.is_a? Fixnum
@@ -288,11 +314,11 @@ module Polyglot
     puts "Looking up.."
     #load input string from server
     #uri = URI("http://www.hanviet.org/ajax.php?radical=#{radical_index}&strokes=#{stroke_count}")
-    #res = Net::HTTP.get(uri).strip    
-    res = load_charlist radical_index, stroke_count
+    #res = Net::HTTP.get(uri).strip
+    res = Polyglot::load_charlist radical_index, stroke_count
 
-    charlist = parse_charlist res
-    pretty_print charlist
+    charlist = Polyglot::parse_charlist res
+    Polyglot::pretty_print charlist
 
     POLYGLOT_TMP[:RECENT] = charlist
     nil
@@ -301,7 +327,9 @@ module Polyglot
   # load data by stroke_count/radical from local zip archive
   # return sample: "25103:huy|25102:nhung|25101:thu|25100:tuat|"
   #
-  def load_charlist radical_index, stroke_count
+  # @param  stroke_count  Specify 0 to load all characters in given radical.
+  #
+  def self.load_charlist radical_index, stroke_count
     zip_entry_name = "radical-#{radical_index}.txt"
     raw            = Zip::ZipFile.open("radicals.zip") { |f| f.read zip_entry_name }
     stroke_table   = Hash.new
@@ -312,13 +340,15 @@ module Polyglot
       stroke_table[stroke] = l.sub(regexp,'').strip
     end
 
-    stroke_table[stroke_count]
+    return stroke_table[stroke_count] if stroke_count > 0
+    stroke_table.values.join("|")
   end
-  
+
   # sample data: "25103:huy|25102:nhung|25101:thu|25100:tuat|"
+  # Return an array of character info {:char_code, :han, :unicode }
   #
-  def parse_charlist text
-    list = text.split("|").map { |x| x.split(":") }.map { |x| {
+  def self.parse_charlist text
+    list = text.split("|").reject{ |x| x.empty? }.map { |x| x.split(":") }.map { |x| {
       :char_code => x[0],
       :han       => x[1],
       :unicode   => [x[0].to_i].pack("U*")
@@ -330,9 +360,11 @@ module Polyglot
       trans = "<no definition>" if trans.nil?
       x[:trans] = trans
     end
+
+    list
   end
 
-  def pretty_print charlist
+  def self.pretty_print charlist
     charlist.each_with_index { |x,_index| puts "#{x[:unicode]} #{x[:han].force_encoding('UTF-8')} #{x[:char_code].force_encoding('UTF-8')} ##{(_index+1).to_s.force_encoding('UTF-8')} #{x[:trans].force_encoding('UTF-8')}" }
   end
 
@@ -360,10 +392,52 @@ module Polyglot
   # Accept varargs
   def composition radical, *args
     stroke_count = 0 # All strokes
-    if args.size > 0 and args.first.is_a? Number
+    if args.size > 0 and args.first.is_a? Numeric
       stroke_count = args.first
       args.delete_at 0
     end
+
+    main_matches = Polyglot.list_radicals radical.to_s
+    if main_matches.size != 1
+      puts "Main radical: #{radical} : #{main_matches.inspect}"
+      return
+    end
+
+    radical_info = main_matches.first
+    ri = radical_info[:radical_index]
+    r_charlist = []
+    unknown_r_comps = []
+    args.each do |arg|
+      if arg.is_a? Symbol
+        matches = Polyglot.list_radicals arg.to_s
+        unknown_r_comps << arg if matches.size != 1
+        r_charlist << matches.first[:unicode] if matches.size == 1
+      end
+    end
+
+    if unknown_r_comps.size > 0
+      puts "Unknown radicals: #{unknown_r_comps.inspect}"
+      return
+    end
+
+    charlist = Polyglot::parse_charlist Polyglot::load_charlist(ri, stroke_count)
+
+    puts "Find: radical #{radical_info[:unicode]}, composition: #{r_charlist.inspect}, source: #{charlist.size} characters"
+
+    r = Polyglot::Composition::find(charlist.map{|x| x[:unicode] }, r_charlist)
+    puts "Found #{r.size} characters(s): #{r.inspect}"
+
+    # Pretty print
+    r.each do |ch|
+      trans = LOCAL_DICT.trans ch
+      trans = "<no definition>" if trans.nil?
+      puts "#{ch} : #{trans}"
+    end
+
+  end
+
+  def c(*args)
+    composition(*args)
   end
 
 end # end of Module
