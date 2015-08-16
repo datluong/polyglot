@@ -37,6 +37,19 @@ module Polyglot
       end
     end
 
+    # Return an array of all characters containing composition
+    #
+    # @param  composition  An array of unicode characters.
+    #
+    def self.find_all(composition)
+      r = []
+      map = self.get_char_map
+      map.each_pair do |k,v|
+        r << k if composition.all? { |c| v[:composition].include? c }
+      end
+      r
+    end
+
     def self.get_char_map
       if @@char_map.nil?
         m = ::Benchmark.measure { @@char_map = self.expand self.build_hash if @@char_map.nil? }
@@ -385,6 +398,22 @@ module Polyglot
     charlist.each_with_index { |x,_index| puts "#{x[:unicode]} #{x[:han].force_encoding('UTF-8')} #{x[:char_code].force_encoding('UTF-8')} ##{(_index+1).to_s.force_encoding('UTF-8')} #{x[:trans].force_encoding('UTF-8')}" }
   end
 
+  def self.pretty_print_with_trans char_arr
+    char_arr.each do |ch|
+      trans = Polyglot.get_local_dict.trans(ch)
+      trans = trans.force_encoding('UTF-8') unless trans.nil?
+
+      hv_trans = Polyglot.get_hanviet_dict.trans(ch)
+      if hv_trans != nil
+        trans = "" if trans.nil?
+        trans += " [hanviet] #{hv_trans.force_encoding('UTF-8')}"
+      end
+
+      trans = "<no definition>" if trans.nil?
+      puts "#{ch} : #{trans}"
+    end
+  end
+
   # get the pinyin of char_code
   #
   def pinyin char_code
@@ -419,7 +448,8 @@ module Polyglot
 
     main_matches = Polyglot.list_radicals radical.to_s
     if main_matches.size != 1
-      puts "Main radical: #{radical} : #{main_matches.inspect}"
+      puts "Main radical: #{radical}"
+      pp main_matches
       return
     end
 
@@ -453,27 +483,44 @@ module Polyglot
 
     r = Polyglot::Composition::find(charlist.map{|x| x[:unicode] }, r_charlist)
     puts "Found #{r.size} characters(s): #{r.inspect}"
+    Polyglot.pretty_print_with_trans r
 
-    # Pretty print
-    r.each do |ch|
-      trans = Polyglot.get_local_dict.trans(ch)
-      trans = trans.force_encoding('UTF-8') unless trans.nil?
+    POLYGLOT_TMP[:RECENT] = r
+  end
 
-      hv_trans = Polyglot.get_hanviet_dict.trans(ch)
-      if hv_trans != nil
-        trans = "" if trans.nil?
-        trans += " [hanviet] #{hv_trans.force_encoding('UTF-8')}"
+  def composition_search *args
+    r_charlist = []
+    unknown_r_comps = []
+
+    radical_args = args.select { |x| x.is_a?(Symbol) and x.to_s =~ /[\w]+/ }
+    char_args = args.select { |x| /[\w]+/.match(x.to_s).nil? }.map { |x| x.to_s }
+    radical_args.each do |arg|
+      if arg.is_a? Symbol
+        matches = Polyglot.list_radicals arg.to_s
+        unknown_r_comps << arg if matches.size != 1
+        matches.each { |m| puts "#{m[:description]} #{m[:radical_name]}" } if matches.size > 1
+        r_charlist << matches.first[:unicode] if matches.size == 1
       end
-
-      trans = "<no definition>" if trans.nil?
-      puts "#{ch} : #{trans}"
     end
+    if unknown_r_comps.size > 0
+      puts "Unknown radicals: #{unknown_r_comps.inspect}"
+      return
+    end
+    r_charlist = r_charlist.concat(char_args).uniq
 
+    r = Polyglot::Composition::find_all(r_charlist)
+    puts "Found #{r.size} characters(s): #{r.inspect}"
+
+    Polyglot.pretty_print_with_trans r
     POLYGLOT_TMP[:RECENT] = r
   end
 
   def c(*args)
     composition(*args)
+  end
+
+  def cs(*args)
+    composition_search(*args)
   end
 
   def list_recents
@@ -487,6 +534,7 @@ module Polyglot
   def show_composition(c)
     if c.is_a? Numeric
       c = POLYGLOT_TMP[:RECENT][c]
+      c = c[:unicode] if c.is_a?(Hash) and c.key?(:unicode)
     end
     x = Composition::get_char_map[c.to_s]
     pp x
