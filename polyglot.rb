@@ -22,32 +22,44 @@ module Polyglot
 
     # @param   source_list  array of unicode characters
     # @param   composition  array
+    # @param   options      :config  Character configuration.
     # @return  array of composition objects
     #
-    def self.find(source_list, composition)
-      puts "Polyglot::Composition::find #{composition.inspect}, source_size: #{source_list.size}"
+    def self.find(source_list, composition, options)
+      options = options || {}
+      puts "Polyglot::Composition::find #{composition.inspect}, source_size: #{source_list.size}, options: #{options}"
       map = self.get_char_map
+      c_regex = options.key?(:config) ? Regexp.new(options[:config].to_s) : nil
+
       source_list.select do |ch|
-        r = false
+        ok = false
         if map.key? ch
           entry_composition = map[ch][:composition]
-          r = composition.all? { |c| entry_composition.include? c }
+          ok = composition.all? { |c| entry_composition.include? c }
+          ok &&= (c_regex =~ map[ch][:configuration]) != nil unless c_regex.nil?
         end
-        r
+        ok
       end
     end
 
     # Return an array of all characters containing composition
     #
     # @param  composition  An array of unicode characters.
+    # @param   options      :config  Character configuration.
     #
-    def self.find_all(composition)
-      r = []
+    def self.find_all(composition, options)
+      options = options || {}
+      puts "Polyglot::Composition::find_all #{composition.inspect},  options: #{options}"
+      results = []
       map = self.get_char_map
+      c_regex = options.key?(:config) ? Regexp.new(options[:config].to_s) : nil
+
       map.each_pair do |k,v|
-        r << k if composition.all? { |c| v[:composition].include? c }
+        ok = composition.all? { |c| v[:composition].include? c }
+        ok &&= (c_regex =~ v[:configuration]) != nil unless c_regex.nil?
+        results << k if ok
       end
-      r
+      results
     end
 
     def self.get_char_map
@@ -97,12 +109,12 @@ module Polyglot
   class Stardict
 
     def initialize dict_prefix
-      puts "Stardict: Load #{dict_prefix}"
       @prefix   = dict_prefix
       @idx      = idx_data 
       @dict     = dict_data
       @wordlist = Hash.new
       parse
+      puts "Stardict: Load #{dict_prefix} : Word(s): #{@wordlist.size}"
     end
 
     # parse dictionary contents
@@ -436,9 +448,29 @@ module Polyglot
 
   # Accept varargs
   # Example: composition :nhan1, :khau, :_si => look for all characters in :nhan1 radical, contains components: [:khau, :si]
-  #          composition :nhan1, 6, :khau => look for all character in :nhan1 radical, 6 strokes, contains components: [:khau]
+  #          composition :nhan1, 6, :khau => look for all character in :nhan1 radical, 6 strokes, contains components: [:khau].
   #
+  # You can also provide additional filtering options by passing a hash.
+  #   Example: composition :nhuc,4, { configuration => :d }
+  #
+  # -- Character configuration table:
+  #    Code regex    Meaning    Number of possible constituents
+  #    c    component    0
+  #    m.*    modified in some way, e.g. me=equivalent, msp=special, mo=outline, ml=left radical version    1
+  #    w.*    second constituent contained within first in some way, e.g. w=within at the center, wbl=within at bottom left    2
+  #    ba|d    second between first moving across or downwards    2
+  #    lock    components locked together    2
+  #    s.*    first component surrounds second, e.g. s=surrounds fully, str=surrounds around the top-right    2
+  #    a    flows across    >= 2
+  #    d    flows downwards    >= 2
+  #    r.*    repeats and/or reflects in some way, e.g. refh=reflect horizontally, rot=rotate 180 degrees, rrefr= repeat with a reflection rightwards, ra=repeat across, r3d=repeat 3 times downwards, r3tr=repeat in a triangle, rst=repeat surrounding around the top    1
+  #    The s, a, d, and r codes may be followed by /t, /m, /s, or /o, to show whether the join touches, molds, snaps together, or overlaps, respectively.
+
   def composition radical, *args
+    options = args.find { |x| x.is_a? Hash }
+    args.reject! { |x| x.is_a? Hash } unless options.nil?
+    options = options || {}
+
     stroke_count = 0 # All strokes
     if args.size > 0 and args.first.is_a? Numeric
       stroke_count = args.first
@@ -480,7 +512,7 @@ module Polyglot
 
     puts "Find: radical #{radical_info[:unicode]}, composition: #{r_charlist.inspect}, source: #{charlist.size} characters"
 
-    r = Polyglot::Composition::find(charlist.map{|x| x[:unicode] }, r_charlist)
+    r = Polyglot::Composition::find(charlist.map{|x| x[:unicode] }, r_charlist, options)
     puts "Found #{r.size} characters(s): #{r.inspect}"
     Polyglot.pretty_print_with_trans r
 
@@ -488,6 +520,10 @@ module Polyglot
   end
 
   def composition_search *args
+    options = args.find { |x| x.is_a? Hash }
+    args.reject! { |x| x.is_a? Hash } unless options.nil?
+    options = options || {}
+
     r_charlist = []
     unknown_r_comps = []
 
@@ -507,7 +543,7 @@ module Polyglot
     end
     r_charlist = r_charlist.concat(char_args).uniq
 
-    r = Polyglot::Composition::find_all(r_charlist)
+    r = Polyglot::Composition::find_all(r_charlist, options)
     puts "Found #{r.size} characters(s): #{r.inspect}"
 
     Polyglot.pretty_print_with_trans r
@@ -537,6 +573,12 @@ module Polyglot
     end
     x = Composition::get_char_map[c.to_s]
     pp x
+  end
+
+  def cedict(ch)
+    ch = ch.to_s.gsub('"', '')
+    cmd = "cat cedict_ts.u8 | grep -e \"#{ch}\""
+    puts `#{cmd}`
   end
 
 end # end of Module
