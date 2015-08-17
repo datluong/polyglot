@@ -62,8 +62,7 @@ module Polyglot
       comps = line.gsub(")", "").split ":"
       comps2 = comps.last.split "("
       return nil unless comps.size == 2 and comps2.size == 2
-      h = { :char => comps.first, :configuration => comps2.first, :composition => comps2.last.split(",") }
-      h[:memorized] = [ h[:composition].first ]
+      h = { :char => comps.first, :configuration => comps2.first, :composition => comps2.last.split(","), :memorized => [] }
       h
     end
 
