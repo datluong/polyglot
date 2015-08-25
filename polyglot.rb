@@ -581,6 +581,36 @@ module Polyglot
     puts `#{cmd}`
   end
 
+  def cedict_word(ch)
+    pattern = "^#{ch.to_s} "
+    cedict pattern
+  end
+
+  # Get only the radical character from a character.
+  #
+  def extract_radical(ch)
+    ch = ch.to_s
+    map = Polyglot::Composition.get_char_map
+    if map.key? ch
+      comps = map[ch][:composition]
+      return comps[0] if comps.size > 1
+    end
+    ch
+  end
+
+  def strip_radical(ch)
+    ch = ch.to_s
+    map = Polyglot::Composition.get_char_map
+    if map.key? ch
+      comps = map[ch][:composition]
+      return comps[1] if comps.size > 1
+    end
+    ch
+  end
+
+  alias :sr :strip_radical
+  alias :er :extract_radical
+
 end # end of Module
 
 include Polyglot
